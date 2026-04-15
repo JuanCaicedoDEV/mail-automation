@@ -1,0 +1,13 @@
+{
+  "brand_name": "Vision Media",
+  "brand_voice": "Innovative, Strategic, Professional, Visionary",
+  "target_audience": "Forward-thinking brands and digital agencies.",
+  "color_palette": [
+    "#000000",
+    "#FFFFFF",
+    "#4F46E5",
+    "#E5E7EB"
+  ],
+  "visual_style": "Modern, sleek, high-tech, minimalist.",
+  "prompt_suffix": "Create a modern, high-tech aesthetic image, professional lighting, 8k resolution."
+}

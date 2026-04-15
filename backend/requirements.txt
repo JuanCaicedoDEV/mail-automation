@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+apscheduler
+httpx
+python-multipart
+aiosqlite
+pydantic
+google-genai
+Pillow
+google-auth-oauthlib
+google-auth-httplib2
+google-api-python-client
+pyinstaller
+rumps; sys_platform == "darwin"
