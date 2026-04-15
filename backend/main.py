@@ -747,54 +747,75 @@ def _resolve_image_path(image_url: str) -> Optional[Path]:
 
 import re as _re
 
-def _embed_html_images(body_html: str) -> str:
+def _prepare_email_images(body_html: str):
     """
-    Replace local <img src="http://localhost/..."> URLs with base64 data URIs
-    so images are self-contained in the email body.
-    No external server or Zoho attachment API required.
+    Upload local images to Zoho attachment store and replace <img src> with cid: references.
+    Returns (processed_html, attachments_list) where attachments_list contains Zoho
+    inline attachment metadata ready to pass to the send API.
+    Falls back to base64 embedding if the Zoho upload fails.
     """
-    import base64, mimetypes
+    import base64, mimetypes, uuid as _uuid
+    from backend.email_service import email_service
+
     processed = body_html
+    attachments = []
+
     for url in _re.findall(r'src="([^"]+)"', body_html, _re.IGNORECASE):
         if "localhost" not in url and "127.0.0.1" not in url:
             continue
         file_path = _resolve_image_path(url)
         if not file_path or not file_path.exists():
             logger.warning(f"[images] file not found for {url} → {file_path}")
-            # Remove the broken localhost img tag so no alt text shows up
-            processed = processed.replace(
-                f'src="{url}"', 'src="" style="display:none"', 1
-            )
+            processed = processed.replace(f'src="{url}"', 'src="" style="display:none"', 1)
             continue
+
+        # Try Zoho upload first (inline attachment via CID)
+        try:
+            data = email_service.upload_zoho_attachment(file_path)
+            cid = _uuid.uuid4().hex
+            processed = processed.replace(f'src="{url}"', f'src="cid:{cid}"', 1)
+            attachments.append({
+                "storeName": data.get("storeName", ""),
+                "attachmentPath": data.get("attachmentPath", ""),
+                "attachmentName": data.get("attachmentName", file_path.name),
+                "isInline": True,
+                "contentId": cid,
+            })
+            logger.info(f"[images] uploaded {file_path.name} to Zoho as cid:{cid}")
+            continue
+        except Exception as e:
+            logger.warning(f"[images] Zoho upload failed for {file_path.name}, falling back to base64: {e}")
+
+        # Fallback: base64 data URI
         try:
             mime, _ = mimetypes.guess_type(str(file_path))
             mime = mime or "image/png"
             b64 = base64.b64encode(file_path.read_bytes()).decode("utf-8")
             processed = processed.replace(f'src="{url}"', f'src="data:{mime};base64,{b64}"', 1)
-            logger.info(f"[images] embedded {file_path.name} ({len(b64)//1024}KB base64)")
+            logger.info(f"[images] base64-embedded {file_path.name} ({len(b64)//1024}KB)")
         except Exception as e:
             logger.warning(f"[images] could not embed {url}: {e}")
-    return processed
+
+    return processed, attachments
 
 
 async def process_email_sending(_campaign_id: int, leads: List[dict], subject: str,
                                  body_html: str):
     """
     Flujo:
-    1. Convertir imágenes locales (localhost) a base64 embebido en el HTML.
+    1. Subir imágenes locales a Zoho (inline attachment con CID).
     2. Enviar el email personalizado a cada lead via Zoho API.
     """
     from backend.email_service import email_service
 
-    # Embed local images as base64 data URIs — self-contained, no external hosting needed
-    processed_html = _embed_html_images(body_html)
+    processed_html, attachments = _prepare_email_images(body_html)
 
     async with app.state.pool.acquire() as conn:
         for lead in leads:
             try:
                 body = processed_html.replace("{{name}}", lead.get("name") or "there")
                 body = body.replace("{{email}}", lead.get("email") or "")
-                await email_service.send_email(lead["email"], subject, body)
+                await email_service.send_email(lead["email"], subject, body, attachments=attachments)
                 await conn.execute("UPDATE leads SET status = 'SENT', sent_at = datetime('now') WHERE id = $1",
                                    lead["id"])
                 logger.info(f"Email sent to {lead['email']}")

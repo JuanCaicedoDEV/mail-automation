@@ -114,8 +114,14 @@ class EmailService:
             data = data[0]
         return data
 
-    async def send_email(self, to_email: str, subject: str, body_html: str):
-        """Send an HTML email via Zoho Mail API. Images must be base64-embedded in body_html."""
+    async def send_email(self, to_email: str, subject: str, body_html: str,
+                         attachments: list = None):
+        """Send an HTML email via Zoho Mail API.
+
+        attachments: list of Zoho inline attachment dicts with keys
+          storeName, attachmentPath, attachmentName, isInline, contentId.
+          These are uploaded beforehand via upload_zoho_attachment().
+        """
         account_id = os.getenv("ZOHO_ACCOUNT_ID")
         if not account_id:
             account_id = self.getZohoAccountID()
@@ -132,6 +138,9 @@ class EmailService:
             "content": body_html,
             "mailFormat": "html",
         }
+        if attachments:
+            data["attachments"] = attachments
+            logger.info(f"[send] including {len(attachments)} inline attachment(s)")
         response = requests.post(url=url, headers=headers, json=data)
         if response.status_code in [200, 201, 202]:
             logger.info(f"Email sent to {to_email}")
