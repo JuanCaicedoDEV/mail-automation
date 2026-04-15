@@ -93,22 +93,30 @@ class EmailService:
 
         return processed
     
-    def upload_zoho_attachment(self, file_path: Path):
+    def upload_zoho_attachment(self, file_path: Path, inline: bool = False):
+        """Upload a file to Zoho attachment store.
+
+        inline=True: upload with ?isInline=true — Zoho returns a hosted 'url'
+                     you can use directly in the HTML <img src>.
+        inline=False: regular attachment — returns storeName/attachmentPath/attachmentName
+                      for inclusion in the send API attachments array.
+        """
         account_id = os.getenv("ZOHO_ACCOUNT_ID")
         access_token = os.getenv("ZOHO_ACCESS_TOKEN")
-        logger.info(f"[attachment] uploading {file_path.name} | account_id={account_id} | token={'SET' if access_token else 'MISSING'}")
+        logger.info(f"[attachment] uploading {file_path.name} inline={inline} | account={account_id} | token={'SET' if access_token else 'MISSING'}")
 
-        url = f"https://mail.zoho.com/api/accounts/{account_id}/attachments"
+        base_url = f"https://mail.zoho.com/api/accounts/{account_id}/messages/attachments"
+        if inline:
+            base_url += "?isInline=true"
         headers = {"Authorization": f"Zoho-oauthtoken {access_token}"}
 
         with open(file_path, 'rb') as f:
-            files = {'file': (file_path.name, f, 'image/png')}
-            response = requests.post(url, headers=headers, files=files)
+            files = {'attach': (file_path.name, f, 'image/png')}
+            response = requests.post(base_url, headers=headers, files=files)
 
         logger.info(f"[attachment] Zoho response {response.status_code}: {response.text[:300]}")
         response.raise_for_status()
         body = response.json()
-        # data can be a dict or a list depending on Zoho's version
         data = body.get("data", body)
         if isinstance(data, list):
             data = data[0]

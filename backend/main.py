@@ -749,16 +749,18 @@ import re as _re
 
 def _prepare_email_images(body_html: str):
     """
-    Upload local images to Zoho attachment store and replace <img src> with cid: references.
-    Returns (processed_html, attachments_list) where attachments_list contains Zoho
-    inline attachment metadata ready to pass to the send API.
-    Falls back to base64 embedding if the Zoho upload fails.
+    For each local <img src="http://localhost/...">:
+      1. Upload to Zoho with ?isInline=true  → Zoho returns a hosted 'url'
+      2. Replace src with that hosted url so the image renders in the email.
+    Falls back to base64 data URI if the Zoho upload fails.
+    Returns (processed_html, attachments_list).
+    attachments_list is always empty because inline images go via the hosted url,
+    not via the send-API attachments array.
     """
-    import base64, mimetypes, uuid as _uuid
+    import base64, mimetypes
     from backend.email_service import email_service
 
     processed = body_html
-    attachments = []
 
     for url in _re.findall(r'src="([^"]+)"', body_html, _re.IGNORECASE):
         if "localhost" not in url and "127.0.0.1" not in url:
@@ -769,20 +771,16 @@ def _prepare_email_images(body_html: str):
             processed = processed.replace(f'src="{url}"', 'src="" style="display:none"', 1)
             continue
 
-        # Try Zoho upload first (inline attachment via CID)
+        # Upload to Zoho with isInline=true → get hosted url
         try:
-            data = email_service.upload_zoho_attachment(file_path)
-            cid = _uuid.uuid4().hex
-            processed = processed.replace(f'src="{url}"', f'src="cid:{cid}"', 1)
-            attachments.append({
-                "storeName": data.get("storeName", ""),
-                "attachmentPath": data.get("attachmentPath", ""),
-                "attachmentName": data.get("attachmentName", file_path.name),
-                "isInline": True,
-                "contentId": cid,
-            })
-            logger.info(f"[images] uploaded {file_path.name} to Zoho as cid:{cid}")
-            continue
+            data = email_service.upload_zoho_attachment(file_path, inline=True)
+            hosted_url = data.get("url", "")
+            if hosted_url:
+                processed = processed.replace(f'src="{url}"', f'src="{hosted_url}"', 1)
+                logger.info(f"[images] uploaded {file_path.name} → {hosted_url}")
+                continue
+            else:
+                logger.warning(f"[images] Zoho upload returned no url for {file_path.name}, data={data}")
         except Exception as e:
             logger.warning(f"[images] Zoho upload failed for {file_path.name}, falling back to base64: {e}")
 
@@ -796,7 +794,7 @@ def _prepare_email_images(body_html: str):
         except Exception as e:
             logger.warning(f"[images] could not embed {url}: {e}")
 
-    return processed, attachments
+    return processed, []
 
 
 async def process_email_sending(_campaign_id: int, leads: List[dict], subject: str,
