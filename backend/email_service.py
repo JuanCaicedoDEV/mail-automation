@@ -95,26 +95,27 @@ class EmailService:
     
     def upload_zoho_attachment(self, file_path: Path):
         account_id = os.getenv("ZOHO_ACCOUNT_ID")
-        url = f"https://mail.zoho.com/api/accounts/{account_id}/attachments"
-        
-        headers = {
-            "Authorization": f"Zoho-oauthtoken {os.getenv('ZOHO_ACCESS_TOKEN')}"
-        }
-        
-        files = {
-            'file': (file_path.name, open(file_path, 'rb'), 'image/jpeg')
-        }
-        
-        response = requests.post(url, headers=headers, files=files)
-        return response.json()["data"]
+        access_token = os.getenv("ZOHO_ACCESS_TOKEN")
+        logger.info(f"[attachment] uploading {file_path.name} | account_id={account_id} | token={'SET' if access_token else 'MISSING'}")
 
-    async def send_email(self, to_email: str, subject: str, body_html: str,
-                         attachments: list = None):
-        """
-        Send an email via Zoho Mail API.
-        attachments: list of dicts with keys attachmentId, isInline, contentId.
-        Each entry corresponds to an image already uploaded via upload_zoho_attachment().
-        """
+        url = f"https://mail.zoho.com/api/accounts/{account_id}/attachments"
+        headers = {"Authorization": f"Zoho-oauthtoken {access_token}"}
+
+        with open(file_path, 'rb') as f:
+            files = {'file': (file_path.name, f, 'image/png')}
+            response = requests.post(url, headers=headers, files=files)
+
+        logger.info(f"[attachment] Zoho response {response.status_code}: {response.text[:300]}")
+        response.raise_for_status()
+        body = response.json()
+        # data can be a dict or a list depending on Zoho's version
+        data = body.get("data", body)
+        if isinstance(data, list):
+            data = data[0]
+        return data
+
+    async def send_email(self, to_email: str, subject: str, body_html: str):
+        """Send an HTML email via Zoho Mail API. Images must be base64-embedded in body_html."""
         account_id = os.getenv("ZOHO_ACCOUNT_ID")
         if not account_id:
             account_id = self.getZohoAccountID()
@@ -131,8 +132,6 @@ class EmailService:
             "content": body_html,
             "mailFormat": "html",
         }
-        if attachments:
-            data["attachments"] = attachments
         response = requests.post(url=url, headers=headers, json=data)
         if response.status_code in [200, 201, 202]:
             logger.info(f"Email sent to {to_email}")

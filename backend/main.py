@@ -746,53 +746,50 @@ def _resolve_image_path(image_url: str) -> Optional[Path]:
 
 import re as _re
 
-def _upload_html_images(body_html: str) -> tuple[str, list]:
+def _embed_html_images(body_html: str) -> str:
     """
-    Scan body_html for local <img src="..."> URLs, upload each to Zoho as an
-    inline attachment, replace the src with cid:xxx.
-    Returns (processed_html, attachments_list).
+    Replace local <img src="http://localhost/..."> URLs with base64 data URIs
+    so images are self-contained in the email body.
+    No external server or Zoho attachment API required.
     """
-    from backend.email_service import email_service
-    attachments = []
+    import base64, mimetypes
     processed = body_html
     for url in _re.findall(r'src="([^"]+)"', body_html, _re.IGNORECASE):
         if "localhost" not in url and "127.0.0.1" not in url:
             continue
         file_path = _resolve_image_path(url)
         if not file_path or not file_path.exists():
+            logger.warning(f"[images] file not found for {url} → {file_path}")
             continue
         try:
-            cid = f"img_{uuid.uuid4().hex}"
-            data = email_service.upload_zoho_attachment(file_path)
-            attachment_id = data.get("attachmentId")
-            if attachment_id:
-                attachments.append({"attachmentId": attachment_id, "isInline": True, "contentId": cid})
-                processed = processed.replace(f'src="{url}"', f'src="cid:{cid}"', 1)
-                logger.info(f"Uploaded {file_path.name} as inline attachment cid:{cid}")
+            mime, _ = mimetypes.guess_type(str(file_path))
+            mime = mime or "image/png"
+            b64 = base64.b64encode(file_path.read_bytes()).decode("utf-8")
+            processed = processed.replace(f'src="{url}"', f'src="data:{mime};base64,{b64}"', 1)
+            logger.info(f"[images] embedded {file_path.name} ({len(b64)//1024}KB base64)")
         except Exception as e:
-            logger.warning(f"Could not upload {url} to Zoho: {e}")
-    return processed, attachments
+            logger.warning(f"[images] could not embed {url}: {e}")
+    return processed
 
 
 async def process_email_sending(_campaign_id: int, leads: List[dict], subject: str,
                                  body_html: str):
     """
     Flujo:
-    1. Escanear el HTML por imágenes locales (localhost/127.0.0.1).
-    2. Subir cada imagen a Zoho como attachment inline, reemplazar src con cid:.
-    3. Enviar el email personalizado a cada lead.
+    1. Convertir imágenes locales (localhost) a base64 embebido en el HTML.
+    2. Enviar el email personalizado a cada lead via Zoho API.
     """
     from backend.email_service import email_service
 
-    # Upload all local images found in the HTML body once, reuse for every lead
-    processed_html, attachments = _upload_html_images(body_html)
+    # Embed local images as base64 data URIs — self-contained, no external hosting needed
+    processed_html = _embed_html_images(body_html)
 
     async with app.state.pool.acquire() as conn:
         for lead in leads:
             try:
                 body = processed_html.replace("{{name}}", lead.get("name") or "there")
                 body = body.replace("{{email}}", lead.get("email") or "")
-                await email_service.send_email(lead["email"], subject, body, attachments=attachments)
+                await email_service.send_email(lead["email"], subject, body)
                 await conn.execute("UPDATE leads SET status = 'SENT', sent_at = datetime('now') WHERE id = $1",
                                    lead["id"])
                 logger.info(f"Email sent to {lead['email']}")
