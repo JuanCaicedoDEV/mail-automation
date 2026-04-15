@@ -852,12 +852,12 @@ from fastapi.responses import RedirectResponse
 
 
 def _build_oauth_flow(redirect_uri: str):
-    email_service.get_soho_creds()
+    email_service.get_zoho_creds()
 
 
 @app.get("/auth/zoho/login")
 async def login_zoho():
-    url = await email_service.get_soho_creds()
+    url = await email_service.get_zoho_creds()
     return {"url":url}
 
 
@@ -877,6 +877,7 @@ async def callback_zoho(code: str):
 
     access_token = response_dict.get("access_token", "")
     refresh_token = response_dict.get("refresh_token", "")
+    print(f"Zoho refresh token: {refresh_token}")
 
     if not access_token:
         logger.error(f"Zoho token exchange failed: {response_dict}")

@@ -22,14 +22,8 @@ class EmailService:
         self.smtp_server = "smtp.gmail.com"
         self.smtp_port = 587
         self.redirect_uri = "http://127.0.0.1:8000/auth/zoho/callback"
-
-    @property
-    def zoho_client_id(self):
-        return os.getenv("ZOHO_CLIENT_ID")
-
-    @property
-    def zoho_client_secret(self):
-        return os.getenv("ZOHO_CLIENT_SECRET")
+        self.zoho_client_id = os.getenv("ZOHO_CLIENT_ID")
+        self.zoho_client_secret = os.getenv("ZOHO_CLIENT_SECRET")
 
     @property
     def username(self):
@@ -44,7 +38,7 @@ class EmailService:
         return os.getenv("API_URL", "http://127.0.0.1:8000").rstrip("/")
     
     #Obtener la URL para solicitar el acceso a zoho
-    async def get_soho_creds(self) -> str:
+    async def get_zoho_creds(self) -> str:
         params = {
         "client_id": self.zoho_client_id,
         "response_type": "code",
