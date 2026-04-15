@@ -13,7 +13,9 @@ import webbrowser
 import logging
 from pathlib import Path
 
-# Write logs to platform-appropriate location
+# When bundled without a console (PyInstaller console=False), sys.stdout and
+# sys.stderr are None. Uvicorn's logging formatter calls .isatty() on them and
+# crashes. Redirect both to the log file before anything else touches them.
 if sys.platform == "darwin":
     _log_dir = Path.home() / "Library" / "Logs"
 elif sys.platform == "win32":
@@ -21,6 +23,13 @@ elif sys.platform == "win32":
 else:
     _log_dir = Path.home() / ".emailautomation" / "logs"
 _log_dir.mkdir(parents=True, exist_ok=True)
+
+_log_file = open(str(_log_dir / "EmailAutomation.log"), "a", encoding="utf-8", buffering=1)
+if sys.stdout is None:
+    sys.stdout = _log_file
+if sys.stderr is None:
+    sys.stderr = _log_file
+
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -55,6 +64,9 @@ def _start_server():
         host="127.0.0.1",
         port=8000,
         log_level="info",
+        # Disable uvicorn's default log config — it calls isatty() on
+        # sys.stderr which is None when running without a console window.
+        log_config=None,
     )
 
 
