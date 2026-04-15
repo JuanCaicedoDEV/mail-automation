@@ -734,13 +734,14 @@ async def send_campaign_emails(campaign_id: int, request: SendCampaignRequest,
         raise HTTPException(status_code=500, detail=str(e))
 
 def _resolve_image_path(image_url: str) -> Optional[Path]:
-    """Convert a hosted image URL (local server) to its on-disk Path."""
+    """Convert a hosted image URL (local server) to its absolute on-disk Path."""
     from urllib.parse import urlparse
     path = urlparse(image_url).path
+    # Use APP_DIR as absolute base so this works regardless of CWD
     if path.startswith("/images/"):
-        return Path("generated_images") / path.removeprefix("/images/")
+        return APP_DIR / "generated_images" / path.removeprefix("/images/")
     if path.startswith("/uploads/"):
-        return Path("uploads") / path.removeprefix("/uploads/")
+        return APP_DIR / "uploads" / path.removeprefix("/uploads/")
     return None
 
 
@@ -760,6 +761,10 @@ def _embed_html_images(body_html: str) -> str:
         file_path = _resolve_image_path(url)
         if not file_path or not file_path.exists():
             logger.warning(f"[images] file not found for {url} → {file_path}")
+            # Remove the broken localhost img tag so no alt text shows up
+            processed = processed.replace(
+                f'src="{url}"', 'src="" style="display:none"', 1
+            )
             continue
         try:
             mime, _ = mimetypes.guess_type(str(file_path))
