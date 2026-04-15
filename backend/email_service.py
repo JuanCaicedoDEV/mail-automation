@@ -105,14 +105,15 @@ class EmailService:
         access_token = os.getenv("ZOHO_ACCESS_TOKEN")
         logger.info(f"[attachment] uploading {file_path.name} inline={inline} | account={account_id} | token={'SET' if access_token else 'MISSING'}")
 
-        base_url = f"https://mail.zoho.com/api/accounts/{account_id}/messages/attachments"
+        params = {"uploadType": "multipart"}
         if inline:
-            base_url += "?isInline=true"
+            params["isInline"] = "true"
+        base_url = f"https://mail.zoho.com/api/accounts/{account_id}/messages/attachments"
         headers = {"Authorization": f"Zoho-oauthtoken {access_token}"}
 
         with open(file_path, 'rb') as f:
             files = {'attach': (file_path.name, f, 'image/png')}
-            response = requests.post(base_url, headers=headers, files=files)
+            response = requests.post(base_url, headers=headers, files=files, params=params)
 
         logger.info(f"[attachment] Zoho response {response.status_code}: {response.text[:300]}")
         response.raise_for_status()
